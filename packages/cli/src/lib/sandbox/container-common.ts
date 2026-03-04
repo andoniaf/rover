@@ -222,8 +222,29 @@ export async function etcGroupWithUserInfo(
   return [originalGroup + '\n' + groupEntry + '\n', 'agent'];
 }
 
+export async function etcShadowWithUserInfo(
+  backend: ContainerBackend,
+  image: string,
+  userInfo: { uid: number; gid: number }
+): Promise<string> {
+  const originalShadow = await catFile(backend, image, '/etc/shadow');
+  const existingUids = await imageUids(backend, image);
+
+  // If the host UID already exists in the image, no shadow entry needed
+  if (existingUids.has(userInfo.uid)) {
+    return originalShadow;
+  }
+
+  // Add a locked shadow entry for the agent user so sudo can validate the account.
+  // '!' means the password is locked (cannot log in with password), which is fine
+  // since sudo is configured with NOPASSWD via sudoers.
+  const shadowEntry = `agent:!:19750:0:99999:7:::`;
+
+  return originalShadow + '\n' + shadowEntry + '\n';
+}
+
 /**
- * Copy the user and group files into a created (but not yet started) container.
+ * Copy the user, group, and shadow files into a created (but not yet started) container.
  * This replaces bind-mounting these files, which caused issues with tools like
  * adduser/addgroup that use atomic rename (rename(2) fails across mount boundaries).
  */
@@ -231,10 +252,12 @@ export async function copyUserGroupFiles(
   backend: ContainerBackend,
   containerName: string,
   etcPasswd: string,
-  etcGroup: string
+  etcGroup: string,
+  etcShadow: string
 ): Promise<void> {
   await launch(backend, ['cp', etcPasswd, `${containerName}:/etc/passwd`]);
   await launch(backend, ['cp', etcGroup, `${containerName}:/etc/group`]);
+  await launch(backend, ['cp', etcShadow, `${containerName}:/etc/shadow`]);
 }
 
 /**
@@ -249,7 +272,7 @@ export async function tmpUserGroupFiles(
   containerBackend: ContainerBackend,
   agentImage: string,
   userInfo: UserInfo<string>
-): Promise<[string, string]> {
+): Promise<[string, string, string]> {
   const userCredentialsTempPath = mkdtempSync(join(tmpdir(), 'rover-'));
   const etcPasswd = join(userCredentialsTempPath, 'passwd');
   const [etcPasswdContents, _username] = await etcPasswdWithUserInfo(
@@ -267,7 +290,15 @@ export async function tmpUserGroupFiles(
   );
   writeFileSync(etcGroup, etcGroupContents);
 
-  return [etcPasswd, etcGroup];
+  const etcShadow = join(userCredentialsTempPath, 'shadow');
+  const etcShadowContents = await etcShadowWithUserInfo(
+    containerBackend,
+    agentImage,
+    userInfo
+  );
+  writeFileSync(etcShadow, etcShadowContents);
+
+  return [etcPasswd, etcGroup, etcShadow];
 }
 
 /**

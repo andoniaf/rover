@@ -35,6 +35,7 @@ export class DockerSandbox extends Sandbox {
   private initMode = false;
   private etcPasswdPath?: string;
   private etcGroupPath?: string;
+  private etcShadowPath?: string;
 
   constructor(
     task: TaskDescriptionManager,
@@ -156,13 +157,14 @@ export class DockerSandbox extends Sandbox {
     // Generate passwd/group files to copy into the container after creation.
     // Files are copied (not bind-mounted) so that tools like adduser/addgroup
     // can use atomic rename on /etc/passwd and /etc/group.
-    const [etcPasswd, etcGroup] = await tmpUserGroupFiles(
+    const [etcPasswd, etcGroup, etcShadow] = await tmpUserGroupFiles(
       ContainerBackend.Docker,
       effectiveImage,
       userInfo_
     );
     this.etcPasswdPath = etcPasswd;
     this.etcGroupPath = etcGroup;
+    this.etcShadowPath = etcShadow;
 
     // Add NET_ADMIN capability if network filtering is configured
     const effectiveNetworkConfig = mergeNetworkConfig(
@@ -323,7 +325,8 @@ export class DockerSandbox extends Sandbox {
           ContainerBackend.Docker,
           this.sandboxName,
           this.etcPasswdPath!,
-          this.etcGroupPath!
+          this.etcGroupPath!,
+          this.etcShadowPath!
         );
         this.processManager?.completeLastItem();
         this.processManager?.addItem(
@@ -367,7 +370,8 @@ export class DockerSandbox extends Sandbox {
         ContainerBackend.Docker,
         this.sandboxName,
         this.etcPasswdPath!,
-        this.etcGroupPath!
+        this.etcGroupPath!,
+        this.etcShadowPath!
       );
       this.processManager?.completeLastItem();
       this.processManager?.addItem(
@@ -475,7 +479,7 @@ export class DockerSandbox extends Sandbox {
     // Warn if using a custom agent image
     warnIfCustomImage(projectConfig);
 
-    const [etcPasswd, etcGroup] = await tmpUserGroupFiles(
+    const [etcPasswd, etcGroup, etcShadow] = await tmpUserGroupFiles(
       ContainerBackend.Docker,
       effectiveImage,
       userInfo_
@@ -555,7 +559,8 @@ export class DockerSandbox extends Sandbox {
       ContainerBackend.Docker,
       interactiveName,
       etcPasswd,
-      etcGroup
+      etcGroup,
+      etcShadow
     );
 
     // Use detached: false to ensure proper TTY signal handling and job control
